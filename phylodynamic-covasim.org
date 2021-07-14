@@ -2,37 +2,67 @@
 
 [[https://covasim.idmod.org/][Covasim]]
 
-#+begin_src python :noweb no-export :tangle pdc.py 
-<<configuration>>
+#+begin_src python :noweb no-export :tangle pdc.py
+  <<imports>>
+  
+  <<configuration>>
 #+end_src
 
-* TODO Parameters
+* Intervention: Testing
+
+We construct and object to represent daily testing of each symptomatic
+individuals to represent sampling in the sense of birth-death-sampling models.
+There are a lot more options that could be set for this but this seems like a
+reasonable starting point.
 
 #+begin_src python :tangle pdc.py
-# Define the parameters of the simulation 
+test_spec = cv.test_prob(
+    symp_prob = CONFIG["daily_testing"]["prob"],
+    start_day = CONFIG["daily_testing"]["start_date"],
+    end_day = CONFIG["daily_testing"]["end_date"]
+)
 #+end_src
 
-* TODO Intervention: Testing
+* Simulate
+
+Make a simulation object and run that simulation.
 
 #+begin_src python :tangle pdc.py
-# Define the testing
-#+end_src
-
-* TODO Simulate
-
-#+begin_src python :tangle pdc.py
-# Run the simulation
+sim = cv.Sim(
+    CONFIG["params"],
+    interventions=test_spec,
+    show=False
+)
+sim.run()
 #+end_src
 
 * TODO Reconstructed tree
 
-** TODO Extract the data
+To reconstruct the tree connecting the sampled individuals we need to pull out
+some data.
+
+** Extract the data
 
 #+begin_src python :tangle pdc.py
-# Extract the data specifying the reconstructed tree
+all_people = sim.people.to_people()
+transmission_tree = sim.make_transtree()
+seed_uids = [
+    e["target"]
+    for e in transmission_tree.infection_log
+    if e["layer"] == "seed_infection"
+]
+diagnosed_uids = [int(p.uid) for p in all_people if p.diagnosed]
 #+end_src
 
-** TODO Tree assembly
+** Tree assembly
+
+To extract the reconstructed tree we do two passes over the full transmission
+tree(s). The first moves from the leaves to the root to build up a list of all
+of the individuals that are relevant to the reconstructed tree. The second goes
+from root to leaves building up a representation of the reconstructed tree up to
+the level of resolution permitted by covasim. The modelling assumptions of
+covasim mean that the result of the previous step is not necessarily a binary
+tree hence further post-processing is necessary.
 
 #+begin_src python :tangle pdc.py
 # Assemble the reconstructed tree
@@ -48,15 +78,39 @@
 
 #+name: configuration
 #+begin_src python
-CONFIG = {}
+CONFIG = {
+    "params": {
+        "pop_size": 2e3,
+        "pop_infected": 10,
+        "start_day": '2020-04-01',
+        "end_day": '2020-04-05'
+    },
+    "daily_testing": {
+        "prob": 0.3,
+        "start_date": '2020-04-02',
+        "end_date": '2020-05-31'
+    },
+    "output_json": "demo.json"
+}
 #+end_src
 
 * Requirements
 
-The following are the package versions which can be used in a =requirements.txt=
-file.
+There are some packages that we need.
 
-#+begin_src :tangle requirements.txt
+#+name: imports
+#+begin_src python
+import json as json
+import sciris as sc
+import covasim as cv
+import numpy as np
+import networkx as nx
+#+end_src
+
+The code here should run in a virtual environment. The following are the package
+versions which can be used in a =requirements.txt= file.
+
+#+begin_src text :tangle requirements.txt
 backcall==0.2.0
 covasim==3.0.7
 cycler==0.10.0
@@ -106,3 +160,21 @@ wcwidth==0.2.5
 xlrd==1.2.0
 XlsxWriter==1.4.4
 #+end_src
+
+To create the environment use the following
+
+#+begin_src sh
+python3 -m venv venv
+source venv/bin/activate
+pip install -U pip   # update pip
+pip install -r requirements.txt
+#+end_src
+
+To get a copy of the exact version of =covasim= that we are using there are a
+couple of variables to inspect.
+
+#+begin_src python :tangle pdc.py
+print(sim.version)
+print(sim.git_info)
+#+end_src
+
