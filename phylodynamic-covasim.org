@@ -30,10 +30,29 @@ Make a simulation object and run that simulation.
 #+begin_src python :tangle pdc.py
 sim = cv.Sim(
     CONFIG["params"],
-    interventions=test_spec,
-    show=False
+    interventions=test_spec
 )
+sim.set_seed(CONFIG["sim"]["initial_seed"])
 sim.run()
+#+end_src
+
+but we want to make sure that there are at least two diagnosed cases so we will
+loop the simulation until this is the case.
+
+#+begin_src python :tangle pdc.py
+sim_count = 1
+while sim_count < CONFIG["sim"]["maximum_repeats"]:
+    if sim.summary["cum_diagnoses"] > 1:
+        break
+    else:
+        print("repeating the simulation...")
+        sim = cv.Sim(
+            CONFIG["params"],
+            interventions=test_spec
+        )
+        sim.set_seed(CONFIG["sim"]["initial_seed"] + sim_count)
+        sim.run()
+        sim_count += 1
 #+end_src
 
 * TODO Reconstructed tree
@@ -45,13 +64,13 @@ some data.
 
 #+begin_src python :tangle pdc.py
 all_people = sim.people.to_people()
-transmission_tree = sim.make_transtree()
+transmission_tree = sim.make_transtree(to_networkx=True)
 seed_uids = [
     e["target"]
     for e in transmission_tree.infection_log
     if e["layer"] == "seed_infection"
 ]
-diagnosed_uids = [int(p.uid) for p in all_people if p.diagnosed]
+diagnosed_people = [p for p in all_people if p.diagnosed]
 #+end_src
 
 ** Tree assembly
@@ -99,29 +118,49 @@ def first_pass_uids(leaf_people: List[cv.Person],
     return result
 #+end_src
 
-** TODO Visualise the tree
+We can then extract the subgraph containing just these nodes.
 
 #+begin_src python :tangle pdc.py
-# Generate a visualisation
+fp_uids = first_pass_uids(diagnosed_people, transmission_tree, 100)
+almost_rt = transmission_tree.graph.subgraph(fp_uids)
 #+end_src
 
-* TODO Configuration
+** Visualisation of transmission
+
+The figure below shows the transmission tree restricted to just those paths from
+root to leaf of the reconstructed tree. Consequently, it is not necessarily a
+binary tree and there are internal nodes which would not be included in the
+final reconstructed tree.
+
+#+begin_src python :tangle pdc.py
+nx.draw_planar(almost_rt, with_labels = True)
+plt.savefig("demo-almost-rt.png")
+plt.clf()
+#+end_src
+
+[[./demo-almost-rt.png]]
+
+* Configuration
 
 #+name: configuration
 #+begin_src python
 CONFIG = {
     "params": {
         "pop_size": 2e3,
-        "pop_infected": 10,
+        "pop_infected": 1,
         "start_day": '2020-04-01',
-        "end_day": '2020-04-05'
+        "end_day": '2020-05-25'
     },
     "daily_testing": {
-        "prob": 0.3,
+        "prob": 0.1,
         "start_date": '2020-04-02',
-        "end_date": '2020-05-31'
+        "end_date": '2020-05-25'
     },
-    "output_json": "demo.json"
+    "output_json": "demo.json",
+    "sim": {
+        "maximum_repeats": 5,
+        "initial_seed": 1
+    }
 }
 #+end_src
 
@@ -136,6 +175,8 @@ import sciris as sc
 import covasim as cv
 import numpy as np
 import networkx as nx
+import matplotlib.pyplot as plt
+from typing import List, Set
 #+end_src
 
 The code here should run in a virtual environment; there is a =requirements.txt=
