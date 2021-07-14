@@ -64,8 +64,39 @@ the level of resolution permitted by covasim. The modelling assumptions of
 covasim mean that the result of the previous step is not necessarily a binary
 tree hence further post-processing is necessary.
 
+The =first_pass_uids= function computes the result of the first pass.
+
 #+begin_src python :tangle pdc.py
-# Assemble the reconstructed tree
+def first_pass_uids(leaf_people: List[cv.Person],
+                    tt: cv.TransTree,
+                    max_loops: int) -> Set[np.int32]:
+    """return a list of all the people that are ancestral to one of the leaf
+    people."""
+    curr_people = set()
+    for p in leaf_people:
+        curr_people.add(p.uid)
+    next_people = set()
+
+    result = set()
+    for p in curr_people:
+        result.add(p)
+
+    loop_counter = 0
+    while loop_counter < max_loops:
+        for cp in curr_people:
+            for np in tt.graph.predecessors(cp):
+                if np is not None:
+                    next_people.add(np)
+
+        if len(next_people) > 0:
+            for p in next_people:
+                result.add(p)
+            curr_people, next_people = next_people, set()
+            loop_counter += 1
+        else:
+            break
+
+    return result
 #+end_src
 
 ** TODO Visualise the tree
