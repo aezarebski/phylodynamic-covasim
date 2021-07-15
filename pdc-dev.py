@@ -261,6 +261,18 @@ def _parse_root_id(rn: str) -> str:
     else:
         return maybe_match.group(1)
 
+def _parse_node_time(n: str) -> float:
+    """
+    root {n} infected on {inf_d}
+    infection by {n} on {inf_d}
+    diagnosis of {n} on {d}
+    """
+    maybe_match = re.search(r'on ([\.0-9]+)$', n)
+    if maybe_match is None:
+        raise Exception('could not parse: ' + n)
+    else:
+        return float(maybe_match.group(1))
+
 def _parse_inf_label(n: str) -> str:
     """
     infection by {n} on {inf_d}
@@ -286,32 +298,42 @@ def newick(t: nx.DiGraph, rn: str) -> str:
     tree ==> descendant_list [ root_label ] [ : branch_length ] ;
     """
     root_label = _parse_root_id(rn)
-    branch_length = 'X'
-    return _descendent_list(t, rn) + root_label + ':' + branch_length + ';'
+    root_time = _parse_node_time(rn)
+    succs = successors(t, rn)
+    assert len(succs) > 0, "root does not appear to have successor"
+    succ_time = _parse_node_time(succs[0])
+    branch_length = str(succ_time - root_time)
+    return _descendent_list(t, rn, root_time) + root_label + ':' + branch_length + ';'
 
-def _descendent_list(t: nx.DiGraph, n: str) -> str:
+def _descendent_list(t: nx.DiGraph, n: str, pred_time: float) -> str:
     """
     descendant_list ==> ( subtree { , subtree } )
     """
-    return '(' + ','.join([_subtree(t, s) for s in successors(t, n)])+ ')'
+    return '(' + ','.join([_subtree(t, s, pred_time) for s in successors(t, n)])+ ')'
 
-def _subtree(t: nx.DiGraph, n: str) -> str:
+def _subtree(t: nx.DiGraph, n: str, pred_time: float) -> str:
     """
     subtree ==> descendant_list [internal_node_label] [: branch_length]
             ==> leaf_label [: branch_length]
     """
     succs = successors(t, n)
-    branch_length = 'X'
+    curr_time = _parse_node_time(n)
     if succs:
+        succ_time = _parse_node_time(succs[0])
+        branch_length = str(succ_time - curr_time)
         if len(succs) > 1:
-            return _descendent_list(t, n) + _parse_inf_label(n) + ':' + branch_length
+            assert succ_time > curr_time, 'current time is {c} but successor time is {s}'.format(c=curr_time, s=succ_time)
+            return _descendent_list(t, n, curr_time) + _parse_inf_label(n) + ':' + branch_length
         else:
             is_inf = re.match(r'^infection by ([0-9]+) on [\.0-9]+$', n)
             if is_inf:
-                return _descendent_list(t, n) + _parse_inf_label(n) + ':' + branch_length
+                assert succ_time > curr_time, 'current time is {c} but successor time is {s}'.format(c=curr_time, s=succ_time)
+                return _descendent_list(t, n, curr_time) + _parse_inf_label(n) + ':' + branch_length
             else:
-                return _descendent_list(t, n) + _parse_diag(n) + ':' + branch_length
+                return _descendent_list(t, n, curr_time) + _parse_diag(n) + ':' + branch_length
     else:
+        _diag_time = _parse_node_time(n)
+        branch_length = str(_diag_time - pred_time)
         return _parse_diag(n) + ':' + branch_length
 
 print(newick(tmp2, root_name))
