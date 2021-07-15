@@ -5,7 +5,7 @@ import covasim as cv
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
-from typing import List, Set, Union
+from typing import List, Set, Union, Callable, Any
 
 CONFIG: dict = {
     "params": {
@@ -251,37 +251,18 @@ plt.savefig("tmp2-postprocessing.png")
 plt.clf()
 
 
-def _parse_root_id(rn: str) -> str:
-    """
-    root {n} infected on {inf_d}
-    """
-    maybe_match = re.search(r'^root ([0-9]+) infected on [\.0-9]+$', rn)
-    if maybe_match is None:
-        raise Exception('could not parse: ' + rn)
-    else:
-        return maybe_match.group(1)
+def _parse_factory(pattern: str, finalise: Callable[[str], Any]) -> Callable[[str], Any]:
+    def parser(string: str) -> str:
+        maybe_match = re.search(pattern, string)
+        if maybe_match is None:
+            raise Exception('could not parse the string: ' + string + '\ngiven pattern: ' + pattern)
+        else:
+            return finalise(maybe_match.group(1))
+    return parser
 
-def _parse_node_time(n: str) -> float:
-    """
-    root {n} infected on {inf_d}
-    infection by {n} on {inf_d}
-    diagnosis of {n} on {d}
-    """
-    maybe_match = re.search(r'on ([\.0-9]+)$', n)
-    if maybe_match is None:
-        raise Exception('could not parse: ' + n)
-    else:
-        return float(maybe_match.group(1))
-
-def _parse_diag(n: str) -> str:
-    """
-    diagnosis of {n} on {d}
-    """
-    maybe_match = re.search(r'^diagnosis of ([0-9]+) on [\.0-9]+$', n)
-    if maybe_match is None:
-        raise Exception('could not parse: ' + n)
-    else:
-        return maybe_match.group(1)
+_parse_root_id = _parse_factory(r'^root ([0-9]+) infected on [\.0-9]+$', lambda x: x)
+_parse_diag = _parse_factory(r'^diagnosis of ([0-9]+) on [\.0-9]+$', lambda x: x)
+_parse_node_time = _parse_factory(r'on ([\.0-9]+)$', float)
 
 def newick(t: nx.DiGraph, rn: str) -> str:
     """
