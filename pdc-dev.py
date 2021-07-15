@@ -96,12 +96,10 @@ def first_pass_uids(leaf_people: List[cv.Person],
 fp_uids = first_pass_uids(diagnosed_people, transmission_tree, 100)
 sub_trans_tree = transmission_tree.graph.subgraph(fp_uids)
 
-
 is_diagnosed = {p.uid: p.diagnosed for p in all_people}
 diagnosis_dates = {dp.uid: dp.date_diagnosed for dp in diagnosed_people}
 
-assert len(seed_uids) == 1
-assert not is_diagnosed[seed_uids[0]]
+infection_date = {p.uid: p.date_exposed for p in all_people if not np.isnan(p.date_exposed)}
 
 def predecessors(t, n):
     assert t.has_node(n)
@@ -117,9 +115,7 @@ def successors(t, n):
 def has_single_succ(t, n):
     return len(successors(t, n)) == 1
 
-
 def remove_undiagnosed(t, n, is_diagnosed):
-    """ A --> B --> C becomes A --> C if B is not diagnosed """
     assert not is_diagnosed[n]
     assert t.has_node(n)
     assert has_single_pred(t, n)
@@ -131,8 +127,7 @@ def remove_undiagnosed(t, n, is_diagnosed):
     t.remove_node(n)
     return None
 
-def resolve_diagnosed(t, n, is_diagnosed):
-    """ A --> B --> C becomes A --> B* --> C if B is diagnosed """
+def resolve_diagnosed(t, n, is_diagnosed, diag_date_dict):
     assert is_diagnosed[n]
     assert t.has_node(n)
     assert has_single_pred(t, n)
@@ -140,10 +135,9 @@ def resolve_diagnosed(t, n, is_diagnosed):
 
     pred = predecessors(t, n)[0]
     succ = successors(t, n)[0]
-    nid = "internal diagnosis node: {n}".format(n=n)
+    nid = "internal diagnosis node: {n} on day {d}".format(n=n, d=diag_date_dict[n])
     nx.relabel.relabel_nodes(t, {n: nid}, copy=False)
 
-infection_date = {p.uid: p.date_exposed for p in all_people if not np.isnan(p.date_exposed)}
 
 def split_node(t, n, is_diagnosed, diag_date_func, inf_date_dict):
     """
@@ -231,6 +225,9 @@ def _split_undiagnosed(t, n, inf_date_dict):
 
 # Example of how to mutate the transmission tree.
 
+assert len(seed_uids) == 1
+assert not is_diagnosed[seed_uids[0]]
+
 tmp2 = sub_trans_tree.copy()
 
 nx.draw_planar(tmp2, with_labels = True)
@@ -249,7 +246,7 @@ while len(curr_nodes) > 0 and loop_count < max_loops:
     if has_single_pred(tmp2, cn):
         if len(succs) == 1:
             if is_diagnosed[cn]:
-                resolve_diagnosed(tmp2, cn, is_diagnosed)
+                resolve_diagnosed(tmp2, cn, is_diagnosed, diagnosis_dates)
             else:
                 remove_undiagnosed(tmp2, cn, is_diagnosed)
         elif len(succs) > 1:
