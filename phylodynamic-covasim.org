@@ -83,6 +83,8 @@ the level of resolution permitted by covasim. The modelling assumptions of
 covasim mean that the result of the previous step is not necessarily a binary
 tree hence further post-processing is necessary.
 
+** Tree assembly: First pass
+
 The =first_pass_uids= function computes the result of the first pass.
 
 #+begin_src python :tangle pdc.py
@@ -122,23 +124,230 @@ We can then extract the subgraph containing just these nodes.
 
 #+begin_src python :tangle pdc.py
 fp_uids = first_pass_uids(diagnosed_people, transmission_tree, 100)
-almost_rt = transmission_tree.graph.subgraph(fp_uids)
+sub_trans_tree = transmission_tree.graph.subgraph(fp_uids)
 #+end_src
 
-** Visualisation of transmission
+At this point the subtree is not necessarily a binary tree and there are
+internal nodes which would not be included in the final reconstructed tree.
 
-The figure below shows the transmission tree restricted to just those paths from
-root to leaf of the reconstructed tree. Consequently, it is not necessarily a
-binary tree and there are internal nodes which would not be included in the
-final reconstructed tree.
+** Tree assembly: Second pass
+
+Consider the Newick grammar as [[https://evolution.genetics.washington.edu/phylip/newick_doc.html][described by Gary Olsen (1990)]]. Note that this
+grammar may be slightly different than the one presented on [[https://en.wikipedia.org/wiki/Newick_format][Wikipedia]], in that
+makes it clear that it is not necessarily a binary tree.
+
+*** Some helpers
+
+Useful data to have is a dictionary describing who was diagnosed and when and on
+which days people were infected.
 
 #+begin_src python :tangle pdc.py
-nx.draw_planar(almost_rt, with_labels = True)
-plt.savefig("demo-almost-rt.png")
+is_diagnosed = {p.uid: p.diagnosed for p in all_people}
+diagnosis_dates = {dp.uid: dp.date_diagnosed for dp in diagnosed_people}
+
+infection_date = {p.uid: p.date_exposed for p in all_people if not np.isnan(p.date_exposed)}
+#+end_src
+
+The following functions are useful as quick way to get a list of upstream and
+downstream nodes in the transmission graph.
+
+#+begin_src python :tangle pdc.py
+def predecessors(t, n):
+    assert t.has_node(n)
+    return list(t.predecessors(n))
+
+def has_single_pred(t, n):
+    return len(predecessors(t, n)) == 1
+
+def successors(t, n):
+    assert t.has_node(n)
+    return list(t.successors(n))
+
+def has_single_succ(t, n):
+    return len(successors(t, n)) == 1
+#+end_src
+
+*** Chains
+
+Consider three individuals =A=, =B= and =C= which appear in the transmission
+graph as =A -> B -> C=. If =B= is not diagnosed then they need to be removed
+leaving =A -> C=. If they are diagnosed, then they need to remain in the graph
+but get relabelled to store this information.
+
+#+begin_src python :tangle pdc.py
+def remove_undiagnosed(t, n, is_diagnosed):
+    assert not is_diagnosed[n]
+    assert t.has_node(n)
+    assert has_single_pred(t, n)
+    assert has_single_succ(t, n)
+
+    pred = predecessors(t, n)[0]
+    succ = successors(t, n)[0]
+    t.add_edge(pred, succ)
+    t.remove_node(n)
+    return None
+
+def resolve_diagnosed(t, n, is_diagnosed, diag_date_dict):
+    assert is_diagnosed[n]
+    assert t.has_node(n)
+    assert has_single_pred(t, n)
+    assert has_single_succ(t, n)
+
+    pred = predecessors(t, n)[0]
+    succ = successors(t, n)[0]
+    nid = "internal diagnosis node: {n} on day {d}".format(n=n, d=diag_date_dict[n])
+    nx.relabel.relabel_nodes(t, {n: nid}, copy=False)
+#+end_src
+
+*** Branches
+
+Consider the case of individuals =A= and =B= and a set of individuals ={C}=
+which appear in the transmission graph as =A -> B --> {C}=, ie where =B=
+infected all of the people in ={C}=. In this case we need to split the =B= node
+up into individual infection events. This is achieved with the following
+function.
+
+#+begin_src python :tangle pdc.py
+def split_node(t, n, is_diagnosed, diag_date_func, inf_date_dict):
+    assert t.has_node(n)
+    assert has_single_pred(t, n)
+    assert not has_single_succ(t, n)
+
+    if is_diagnosed[n]:
+        _split_diagnosed(t, n, diag_date_func[n], inf_date_dict)
+    else:
+        _split_undiagnosed(t, n, inf_date_dict)
+
+
+def _split_diagnosed(t, n, diag_date, inf_date_dict):
+    pred = predecessors(t, n)[0]
+    succs = successors(t, n)
+
+    inf_dates = list(set(inf_date_dict[s] for s in succs))
+    inf_dates.sort()
+
+    if diag_date in inf_dates:
+        raise NotImplemented("case of diagnosis occurring on the same day as infection.")
+    else:
+        pre_diag_inf_dates = filter(lambda d: d < diag_date, inf_dates)
+        post_diag_inf_dates = filter(lambda d: d > diag_date, inf_dates)
+
+        tmp = pred
+        for inf_d in pre_diag_inf_dates:
+            ss = filter(lambda s: inf_date_dict[s] == inf_d, succs)
+            inf_node_id = "infection by {n} on {inf_d}".format(n=n, inf_d=inf_d)
+            t.add_node(inf_node_id)
+            t.add_edge(tmp, inf_node_id)
+            for s in ss:
+                t.add_edge(inf_node_id, s)
+            tmp = inf_node_id
+
+        nid = "internal diagnosis node: {n}".format(n=n)
+        t.add_node(nid)
+        t.add_edge(tmp, nid)
+        tmp = nid
+
+        for inf_d in post_diag_inf_dates:
+            ss = filter(lambda s: inf_date_dict[s] == inf_d, succs)
+            inf_node_id = "infection by {n} on {inf_d}".format(n=n, inf_d=inf_d)
+            t.add_node(inf_node_id)
+            t.add_edge(tmp, inf_node_id)
+            for s in ss:
+                t.add_edge(inf_node_id, s)
+            tmp = inf_node_id
+
+        t.remove_node(n)
+
+def _split_undiagnosed(t, n, inf_date_dict):
+    pred = predecessors(t, n)[0]
+    succs = successors(t, n)
+
+    inf_dates = list(set(inf_date_dict[s] for s in succs))
+    inf_dates.sort()
+
+    tmp = pred
+    for inf_d in inf_dates:
+        ss = [s for s in succs if inf_date_dict[s] == inf_d]
+        inf_node_id = "infection by {n} on {inf_d}".format(n=n, inf_d=inf_d)
+        t.add_node(inf_node_id)
+        t.add_edge(tmp, inf_node_id)
+        for s in ss:
+            t.add_edge(inf_node_id, s)
+        tmp = inf_node_id
+    t.remove_node(n)
+#+end_src
+
+*WARNING* It is unclear how to handle the case where =B= is diagnosed on the
+same day as they infected one of the people in ={C}= so this has not been
+implemented yet.
+
+*** Root to leaf traversal
+
+Finally we move down the tree from root to leaf mutating it as necessary using
+the functions defined above.
+
+#+begin_src python :tangle pdc.py
+def second_pass_reconstruction(t: nx.DiGraph,
+                               root_uid: np.int64,
+                               max_loops: int) -> None:
+    curr_nodes: List[np.int64] = [root_uid]
+    loop_count: int = 0
+    cn: np.int64
+    while len(curr_nodes) > 0 and loop_count < max_loops:
+        loop_count += 1
+        cn = curr_nodes.pop()
+        succs = successors(t, cn)
+        num_succs = len(succs)
+        curr_nodes = succs + curr_nodes
+        if has_single_pred(t, cn):
+            if num_succs == 1:
+                if is_diagnosed[cn]:
+                    resolve_diagnosed(t, cn, is_diagnosed, diagnosis_dates)
+                else:
+                    remove_undiagnosed(t, cn, is_diagnosed)
+            elif num_succs > 1:
+                split_node(t, cn, is_diagnosed, diagnosis_dates, infection_date)
+            else:
+                # this must be a leaf node.
+                pass
+        else:
+            # this must be the root node.
+            pass
+
+    assert loop_count < max_loops, "more loops are probably needed!"
+    return None
+#+end_src
+
+** Example and visualisation
+
+Finally, we can use these functions to mutate the sub-graph of the transmission
+tree into the reconstructed tree and visualise it.
+
+#+begin_src python :tangle pdc.py
+tmp2 = sub_trans_tree.copy()
+
+nx.draw_planar(tmp2, with_labels = True)
+plt.savefig("tmp2-preprocessing.png")
+plt.clf()
+
+second_pass_reconstruction(tmp2, seed_uids[0], 200)
+
+nx.draw_planar(tmp2, with_labels = True)
+plt.savefig("tmp2-postprocessing.png")
 plt.clf()
 #+end_src
 
-[[./demo-almost-rt.png]]
+Here is the sub-graph of the transmission tree before the second pass
+
+[[./tmp2-preprocessing.png]]
+
+and here it is after the second pass
+
+[[./tmp2-postprocessing.png]]
+
+You can see that the nodes are more spread out in the reconstructed tree because
+infections have been split up and that the labels have been changed to reflect
+the additional information they store.
 
 * Configuration
 
@@ -176,7 +385,7 @@ import covasim as cv
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
-from typing import List, Set
+from typing import List, Set, Union
 #+end_src
 
 The code here should run in a virtual environment; there is a =requirements.txt=

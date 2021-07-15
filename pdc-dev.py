@@ -52,7 +52,6 @@ while sim_count < CONFIG["sim"]["maximum_repeats"]:
         sim.run()
         sim_count += 1
 
-
 all_people = sim.people.to_people()
 transmission_tree = sim.make_transtree(to_networkx=True)
 seed_uids = [
@@ -138,7 +137,6 @@ def resolve_diagnosed(t, n, is_diagnosed, diag_date_dict):
     nid = "internal diagnosis node: {n} on day {d}".format(n=n, d=diag_date_dict[n])
     nx.relabel.relabel_nodes(t, {n: nid}, copy=False)
 
-
 def split_node(t, n, is_diagnosed, diag_date_func, inf_date_dict):
     assert t.has_node(n)
     assert has_single_pred(t, n)
@@ -189,7 +187,6 @@ def _split_diagnosed(t, n, diag_date, inf_date_dict):
 
         t.remove_node(n)
 
-
 def _split_undiagnosed(t, n, inf_date_dict):
     pred = predecessors(t, n)[0]
     succs = successors(t, n)
@@ -238,21 +235,17 @@ def second_pass_reconstruction(t: nx.DiGraph,
     assert loop_count < max_loops, "more loops are probably needed!"
     return None
 
-# Example of how to mutate the transmission tree.
-
-assert len(seed_uids) == 1
-assert not is_diagnosed[seed_uids[0]]
-
 tmp2 = sub_trans_tree.copy()
 
 nx.draw_planar(tmp2, with_labels = True)
-plt.savefig("demo-tmp2-preprocessing.png")
+plt.savefig("tmp2-preprocessing.png")
 plt.clf()
 
 second_pass_reconstruction(tmp2, seed_uids[0], 200)
 
 nx.draw_planar(tmp2, with_labels = True)
-plt.savefig("demo-tmp2-postprocessing.png")
+plt.savefig("tmp2-postprocessing.png")
 plt.clf()
 
-
+print(sim.version)
+print(sim.git_info)
