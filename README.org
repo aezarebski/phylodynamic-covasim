@@ -1,0 +1,7 @@
+#+title: README
+#+author: Alexander Zarebski
+
+This repository contains a [[file:./phylodynamic-covasim.org][literate program]] for extracting a reconstructed
+phylogeny from a [[https://github.com/institutefordiseasemodeling/covasim][covasim]] simulation. Reconstructed phylogenies are used in [[https://en.wikipedia.org/wiki/Viral_phylodynamics][viral
+phylodynamics]] to characterise transmission using viral genomes. This code is
+intended to provide a bridge between covasim and phylodynamic software.
