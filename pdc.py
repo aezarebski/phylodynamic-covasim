@@ -1,12 +1,13 @@
 import json as json
+import re as re
 import sciris as sc
 import covasim as cv
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
-from typing import List, Set, Union
+from typing import List, Set, Union, Callable, Any
 
-CONFIG = {
+CONFIG: dict = {
     "params": {
         "pop_size": 2e3,
         "pop_infected": 1,
@@ -134,7 +135,7 @@ def resolve_diagnosed(t, n, is_diagnosed, diag_date_dict):
 
     pred = predecessors(t, n)[0]
     succ = successors(t, n)[0]
-    nid = "internal diagnosis node: {n} on day {d}".format(n=n, d=diag_date_dict[n])
+    nid = "diagnosis of {n} on {d}".format(n=n, d=diag_date_dict[n])
     nx.relabel.relabel_nodes(t, {n: nid}, copy=False)
 
 def split_node(t, n, is_diagnosed, diag_date_func, inf_date_dict):
@@ -171,7 +172,7 @@ def _split_diagnosed(t, n, diag_date, inf_date_dict):
                 t.add_edge(inf_node_id, s)
             tmp = inf_node_id
 
-        nid = "internal diagnosis node: {n}".format(n=n)
+        nid = "diagnosis of {n} on {d}".format(n=n, d=diag_date)
         t.add_node(nid)
         t.add_edge(tmp, nid)
         tmp = nid
@@ -207,7 +208,9 @@ def _split_undiagnosed(t, n, inf_date_dict):
 
 def second_pass_reconstruction(t: nx.DiGraph,
                                root_uid: np.int64,
-                               max_loops: int) -> None:
+                               diag_dates_dict: dict,
+                               inf_date_dict: dict,
+                               max_loops: int) -> str:
     curr_nodes: List[np.int64] = [root_uid]
     loop_count: int = 0
     cn: np.int64
@@ -220,20 +223,20 @@ def second_pass_reconstruction(t: nx.DiGraph,
         if has_single_pred(t, cn):
             if num_succs == 1:
                 if is_diagnosed[cn]:
-                    resolve_diagnosed(t, cn, is_diagnosed, diagnosis_dates)
+                    resolve_diagnosed(t, cn, is_diagnosed, diag_dates_dict)
                 else:
                     remove_undiagnosed(t, cn, is_diagnosed)
             elif num_succs > 1:
-                split_node(t, cn, is_diagnosed, diagnosis_dates, infection_date)
+                split_node(t, cn, is_diagnosed, diag_dates_dict, inf_date_dict)
             else:
-                # this must be a leaf node.
-                pass
+                leaf_name = "diagnosis of {n} on {d}".format(n=cn, d=diag_dates_dict[cn])
+                nx.relabel.relabel_nodes(t, {cn: leaf_name}, copy=False)
         else:
-            # this must be the root node.
-            pass
+            root_name = "root {n} infected on {inf_d}".format(n=cn, inf_d=inf_date_dict[cn])
+            nx.relabel.relabel_nodes(t, {cn: root_name}, copy=False)
 
     assert loop_count < max_loops, "more loops are probably needed!"
-    return None
+    return root_name
 
 tmp2 = sub_trans_tree.copy()
 
@@ -241,11 +244,69 @@ nx.draw_planar(tmp2, with_labels = True)
 plt.savefig("tmp2-preprocessing.png")
 plt.clf()
 
-second_pass_reconstruction(tmp2, seed_uids[0], 200)
+root_name = second_pass_reconstruction(tmp2, seed_uids[0], diagnosis_dates, infection_date, 200)
 
 nx.draw_planar(tmp2, with_labels = True)
 plt.savefig("tmp2-postprocessing.png")
 plt.clf()
+
+def _parse_factory(pattern: str, finalise: Callable[[str], Any]) -> Callable[[str], Any]:
+    def parser(string: str) -> str:
+        maybe_match = re.search(pattern, string)
+        if maybe_match is None:
+            raise Exception('could not parse the string: ' + string + '\ngiven pattern: ' + pattern)
+        else:
+            return finalise(maybe_match.group(1))
+    return parser
+
+_parse_root_id = _parse_factory(r'^root ([0-9]+) infected on [\.0-9]+$', lambda x: x)
+_parse_diag = _parse_factory(r'^diagnosis of ([0-9]+) on [\.0-9]+$', lambda x: x)
+_parse_node_time = _parse_factory(r'on ([\.0-9]+)$', float)
+
+def newick(t: nx.DiGraph, rn: str) -> str:
+    """
+    tree ==> descendant_list [ root_label ] [ : branch_length ] ;
+    """
+    root_label = _parse_root_id(rn)
+    root_time = _parse_node_time(rn)
+    succs = successors(t, rn)
+    assert len(succs) > 0, "root does not appear to have successor"
+    succ_time = _parse_node_time(succs[0])
+    branch_length = str(succ_time - root_time)
+    return _descendent_list(t, rn, root_time) + root_label + ':' + branch_length + ';'
+
+def _descendent_list(t: nx.DiGraph, n: str, pred_time: float) -> str:
+    """
+    descendant_list ==> ( subtree { , subtree } )
+    """
+    return '(' + ','.join([_subtree(t, s, pred_time) for s in successors(t, n)])+ ')'
+
+def _subtree(t: nx.DiGraph, n: str, pred_time: float) -> str:
+    """
+    subtree ==> descendant_list [internal_node_label] [: branch_length]
+            ==> leaf_label [: branch_length]
+    """
+    succs = successors(t, n)
+    curr_time = _parse_node_time(n)
+    if succs:
+        succ_time = _parse_node_time(succs[0])
+        branch_length = str(succ_time - curr_time)
+        if len(succs) > 1:
+            assert succ_time > curr_time, 'current time is {c} but successor time is {s}'.format(c=curr_time, s=succ_time)
+            return _descendent_list(t, n, curr_time) + ':' + branch_length
+        else:
+            is_inf = re.match(r'^infection by ([0-9]+) on [\.0-9]+$', n)
+            if is_inf:
+                assert succ_time > curr_time, 'current time is {c} but successor time is {s}'.format(c=curr_time, s=succ_time)
+                return _descendent_list(t, n, curr_time) + ':' + branch_length
+            else:
+                return _descendent_list(t, n, curr_time) + _parse_diag(n) + ':' + branch_length
+    else:
+        _diag_time = _parse_node_time(n)
+        branch_length = str(_diag_time - pred_time)
+        return _parse_diag(n) + ':' + branch_length
+
+print(newick(tmp2, root_name))
 
 print(sim.version)
 print(sim.git_info)
