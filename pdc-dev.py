@@ -100,15 +100,7 @@ sub_trans_tree = transmission_tree.graph.subgraph(fp_uids)
 is_diagnosed = {p.uid: p.diagnosed for p in all_people}
 diagnosis_dates = {dp.uid: dp.date_diagnosed for dp in diagnosed_people}
 
-
-
-
 assert len(seed_uids) == 1
-
-
-
-
-
 assert not is_diagnosed[seed_uids[0]]
 
 def predecessors(t, n):
@@ -149,11 +141,7 @@ def resolve_diagnosed(t, n, is_diagnosed):
     pred = predecessors(t, n)[0]
     succ = successors(t, n)[0]
     nid = "internal diagnosis node: {n}".format(n=n)
-    t.add_node(nid)
-    t.add_edge(pred, nid)
-    t.add_edge(nid, succ)
-    t.remove_node(n)
-    return None
+    nx.relabel.relabel_nodes(t, {n: nid}, copy=False)
 
 def infection_date_factory(all_people):
     vals = {p.uid: p.date_exposed for p in all_people if not np.isnan(p.date_exposed)}
