@@ -143,15 +143,9 @@ def resolve_diagnosed(t, n, is_diagnosed):
     nid = "internal diagnosis node: {n}".format(n=n)
     nx.relabel.relabel_nodes(t, {n: nid}, copy=False)
 
-def infection_date_factory(all_people):
-    vals = {p.uid: p.date_exposed for p in all_people if not np.isnan(p.date_exposed)}
-    def infection_date(n):
-        return vals[n]
-    return infection_date
+infection_date = {p.uid: p.date_exposed for p in all_people if not np.isnan(p.date_exposed)}
 
-infection_date = infection_date_factory(all_people)
-
-def split_node(t, n, is_diagnosed, diag_date_func, inf_date_func):
+def split_node(t, n, is_diagnosed, diag_date_func, inf_date_dict):
     """
         mutates the given tree
 
@@ -171,16 +165,16 @@ def split_node(t, n, is_diagnosed, diag_date_func, inf_date_func):
     assert has_single_pred(t, n)
     assert not has_single_succ(t, n)
     if is_diagnosed[n]:
-        _split_diagnosed(t, n, diag_date_func[n], inf_date_func)
+        _split_diagnosed(t, n, diag_date_func[n], inf_date_dict)
     else:
-        _split_undiagnosed(t, n, inf_date_func)
+        _split_undiagnosed(t, n, inf_date_dict)
 
 
-def _split_diagnosed(t, n, diag_date, inf_date_func):
+def _split_diagnosed(t, n, diag_date, inf_date_dict):
     pred = predecessors(t, n)[0]
     succs = successors(t, n)
 
-    inf_dates = list(set(inf_date_func(s) for s in succs))
+    inf_dates = list(set(inf_date_dict[s] for s in succs))
     inf_dates.sort()
 
     if diag_date in inf_dates:
@@ -191,7 +185,7 @@ def _split_diagnosed(t, n, diag_date, inf_date_func):
 
         tmp = pred
         for inf_d in pre_diag_inf_dates:
-            ss = filter(lambda s: inf_date_func(s) == inf_d, succs)
+            ss = filter(lambda s: inf_date_dict[s] == inf_d, succs)
             inf_node_id = "infection by {n} on {inf_d}".format(n=n, inf_d=inf_d)
             t.add_node(inf_node_id)
             t.add_edge(tmp, inf_node_id)
@@ -205,7 +199,7 @@ def _split_diagnosed(t, n, diag_date, inf_date_func):
         tmp = nid
 
         for inf_d in post_diag_inf_dates:
-            ss = filter(lambda s: inf_date_func(s) == inf_d, succs)
+            ss = filter(lambda s: inf_date_dict[s] == inf_d, succs)
             inf_node_id = "infection by {n} on {inf_d}".format(n=n, inf_d=inf_d)
             t.add_node(inf_node_id)
             t.add_edge(tmp, inf_node_id)
@@ -216,16 +210,16 @@ def _split_diagnosed(t, n, diag_date, inf_date_func):
         t.remove_node(n)
 
 
-def _split_undiagnosed(t, n, inf_date_func):
+def _split_undiagnosed(t, n, inf_date_dict):
     pred = predecessors(t, n)[0]
     succs = successors(t, n)
 
-    inf_dates = list(set(inf_date_func(s) for s in succs))
+    inf_dates = list(set(inf_date_dict[s] for s in succs))
     inf_dates.sort()
 
     tmp = pred
     for inf_d in inf_dates:
-        ss = [s for s in succs if inf_date_func(s) == inf_d]
+        ss = [s for s in succs if inf_date_dict[s] == inf_d]
         inf_node_id = "infection by {n} on {inf_d}".format(n=n, inf_d=inf_d)
         t.add_node(inf_node_id)
         t.add_edge(tmp, inf_node_id)
