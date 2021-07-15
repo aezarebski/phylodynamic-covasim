@@ -4,7 +4,7 @@ import covasim as cv
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
-from typing import List, Set
+from typing import List, Set, Union
 
 CONFIG = {
     "params": {
@@ -140,24 +140,10 @@ def resolve_diagnosed(t, n, is_diagnosed, diag_date_dict):
 
 
 def split_node(t, n, is_diagnosed, diag_date_func, inf_date_dict):
-    """
-        mutates the given tree
-
-        --> A --> (B and C and D)
-
-        might becomes
-
-        --> + --> B
-            |
-            + --> + --> C
-                  |
-                  + --> D
-
-        if A was undiagnosed and B was infected before either C or D.
-    """
     assert t.has_node(n)
     assert has_single_pred(t, n)
     assert not has_single_succ(t, n)
+
     if is_diagnosed[n]:
         _split_diagnosed(t, n, diag_date_func[n], inf_date_dict)
     else:
@@ -172,7 +158,7 @@ def _split_diagnosed(t, n, diag_date, inf_date_dict):
     inf_dates.sort()
 
     if diag_date in inf_dates:
-        raise NotImplemented("not designed yet")
+        raise NotImplemented("case of diagnosis occurring on the same day as infection.")
     else:
         pre_diag_inf_dates = filter(lambda d: d < diag_date, inf_dates)
         post_diag_inf_dates = filter(lambda d: d > diag_date, inf_dates)
@@ -222,6 +208,35 @@ def _split_undiagnosed(t, n, inf_date_dict):
         tmp = inf_node_id
     t.remove_node(n)
 
+def second_pass_reconstruction(t: nx.DiGraph,
+                               root_uid: np.int64,
+                               max_loops: int) -> None:
+    curr_nodes: List[np.int64] = [root_uid]
+    loop_count: int = 0
+    cn: np.int64
+    while len(curr_nodes) > 0 and loop_count < max_loops:
+        loop_count += 1
+        cn = curr_nodes.pop()
+        succs = successors(t, cn)
+        num_succs = len(succs)
+        curr_nodes = succs + curr_nodes
+        if has_single_pred(t, cn):
+            if num_succs == 1:
+                if is_diagnosed[cn]:
+                    resolve_diagnosed(t, cn, is_diagnosed, diagnosis_dates)
+                else:
+                    remove_undiagnosed(t, cn, is_diagnosed)
+            elif num_succs > 1:
+                split_node(t, cn, is_diagnosed, diagnosis_dates, infection_date)
+            else:
+                # this must be a leaf node.
+                pass
+        else:
+            # this must be the root node.
+            pass
+
+    assert loop_count < max_loops, "more loops are probably needed!"
+    return None
 
 # Example of how to mutate the transmission tree.
 
@@ -234,31 +249,7 @@ nx.draw_planar(tmp2, with_labels = True)
 plt.savefig("demo-tmp2-preprocessing.png")
 plt.clf()
 
-curr_nodes = seed_uids
-loop_count = 0
-max_loops = 200
-while len(curr_nodes) > 0 and loop_count < max_loops:
-    loop_count += 1
-    print("loop {n} graph has {m} nodes and {p} nodes in the queue".format(n=loop_count, m=tmp2.number_of_nodes(), p=len(curr_nodes)))
-    cn = curr_nodes.pop()
-    succs = successors(tmp2, cn)
-    curr_nodes = succs + curr_nodes
-    if has_single_pred(tmp2, cn):
-        if len(succs) == 1:
-            if is_diagnosed[cn]:
-                resolve_diagnosed(tmp2, cn, is_diagnosed, diagnosis_dates)
-            else:
-                remove_undiagnosed(tmp2, cn, is_diagnosed)
-        elif len(succs) > 1:
-            split_node(tmp2, cn, is_diagnosed, diagnosis_dates, infection_date)
-        else:
-            # we are at a leaf which is a diagnosis by construction
-            pass
-    else:
-        # we are on a node prior to the TMRCA
-        pass
-
-assert loop_count < max_loops, "more loops are probably needed!"
+second_pass_reconstruction(tmp2, seed_uids[0], 200)
 
 nx.draw_planar(tmp2, with_labels = True)
 plt.savefig("demo-tmp2-postprocessing.png")
