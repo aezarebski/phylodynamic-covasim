@@ -228,11 +228,11 @@ def second_pass_reconstruction(t: nx.DiGraph,
             elif num_succs > 1:
                 split_node(t, cn, is_diagnosed, diag_dates_dict, inf_date_dict)
             else:
-                # this must be a leaf node.
-                pass
+                leaf_name = "diagnosis of {n} on {diag_d}".format(n=cn, diag_d=diag_dates_dict[cn])
+                nx.relabel.relabel_nodes(t, {cn: leaf_name}, copy=False)
         else:
-            # this must be the root node.
-            pass
+            root_name = "root infected on {inf_d}".format(inf_d=inf_date_dict[cn])
+            nx.relabel.relabel_nodes(t, {cn: root_name}, copy=False)
 
     assert loop_count < max_loops, "more loops are probably needed!"
     return None
