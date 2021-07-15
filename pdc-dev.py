@@ -38,8 +38,6 @@ sim = cv.Sim(
 sim.set_seed(CONFIG["sim"]["initial_seed"])
 sim.run()
 
-## repeat the simulation until there is an instance with at least two
-## diagnoses, this ensures that we do not get a trivial reconstructed tree.
 sim_count = 1
 while sim_count < CONFIG["sim"]["maximum_repeats"]:
     if sim.summary["cum_diagnoses"] > 1:
@@ -95,29 +93,11 @@ def first_pass_uids(leaf_people: List[cv.Person],
 
     return result
 
-
-# now we will do the second pass.
-
 fp_uids = first_pass_uids(diagnosed_people, transmission_tree, 100)
-
-tmp = transmission_tree.graph.subgraph(fp_uids)
-
-nx.draw_planar(tmp, with_labels = True)
-plt.savefig("demo-almost-rt.png")
-plt.clf()
+sub_trans_tree = transmission_tree.graph.subgraph(fp_uids)
 
 
-
-
-
-def is_diagnosed_factory(diagnosed_people):
-    d_uids = set(dp.uid for dp in diagnosed_people)
-    def is_diagnosed(n):
-        return n in d_uids
-    return is_diagnosed
-
-is_diagnosed = is_diagnosed_factory(diagnosed_people)
-
+is_diagnosed = {p.uid: p.diagnosed for p in all_people}
 diagnosis_dates = {dp.uid: dp.date_diagnosed for dp in diagnosed_people}
 
 
@@ -129,7 +109,7 @@ assert len(seed_uids) == 1
 
 
 
-assert not is_diagnosed(seed_uids[0])
+assert not is_diagnosed[seed_uids[0]]
 
 def predecessors(t, n):
     assert t.has_node(n)
@@ -148,7 +128,7 @@ def has_single_succ(t, n):
 
 def remove_undiagnosed(t, n, is_diagnosed):
     """ A --> B --> C becomes A --> C if B is not diagnosed """
-    assert not is_diagnosed(n)
+    assert not is_diagnosed[n]
     assert t.has_node(n)
     assert has_single_pred(t, n)
     assert has_single_succ(t, n)
@@ -161,7 +141,7 @@ def remove_undiagnosed(t, n, is_diagnosed):
 
 def resolve_diagnosed(t, n, is_diagnosed):
     """ A --> B --> C becomes A --> B* --> C if B is diagnosed """
-    assert is_diagnosed(n)
+    assert is_diagnosed[n]
     assert t.has_node(n)
     assert has_single_pred(t, n)
     assert has_single_succ(t, n)
@@ -202,7 +182,7 @@ def split_node(t, n, is_diagnosed, diag_date_func, inf_date_func):
     assert t.has_node(n)
     assert has_single_pred(t, n)
     assert not has_single_succ(t, n)
-    if is_diagnosed(n):
+    if is_diagnosed[n]:
         _split_diagnosed(t, n, diag_date_func[n], inf_date_func)
     else:
         _split_undiagnosed(t, n, inf_date_func)
@@ -269,7 +249,7 @@ def _split_undiagnosed(t, n, inf_date_func):
 
 # Example of how to mutate the transmission tree.
 
-tmp2 = tmp.copy()
+tmp2 = sub_trans_tree.copy()
 
 nx.draw_planar(tmp2, with_labels = True)
 plt.savefig("demo-tmp2-preprocessing.png")
@@ -280,13 +260,13 @@ loop_count = 0
 max_loops = 200
 while len(curr_nodes) > 0 and loop_count < max_loops:
     loop_count += 1
-    print("on loop {n} the graph has {m} nodes and there are {p} nodes in the queue".format(n=loop_count, m=tmp2.number_of_nodes(), p=len(curr_nodes)))
+    print("loop {n} graph has {m} nodes and {p} nodes in the queue".format(n=loop_count, m=tmp2.number_of_nodes(), p=len(curr_nodes)))
     cn = curr_nodes.pop()
     succs = successors(tmp2, cn)
     curr_nodes = succs + curr_nodes
     if has_single_pred(tmp2, cn):
         if len(succs) == 1:
-            if is_diagnosed(cn):
+            if is_diagnosed[cn]:
                 resolve_diagnosed(tmp2, cn, is_diagnosed)
             else:
                 remove_undiagnosed(tmp2, cn, is_diagnosed)
