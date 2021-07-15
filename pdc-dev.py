@@ -6,7 +6,7 @@ import networkx as nx
 import matplotlib.pyplot as plt
 from typing import List, Set, Union
 
-CONFIG = {
+CONFIG: dict = {
     "params": {
         "pop_size": 2e3,
         "pop_infected": 1,
@@ -207,6 +207,8 @@ def _split_undiagnosed(t, n, inf_date_dict):
 
 def second_pass_reconstruction(t: nx.DiGraph,
                                root_uid: np.int64,
+                               diag_dates_dict: dict,
+                               inf_date_dict: dict,
                                max_loops: int) -> None:
     curr_nodes: List[np.int64] = [root_uid]
     loop_count: int = 0
@@ -220,11 +222,11 @@ def second_pass_reconstruction(t: nx.DiGraph,
         if has_single_pred(t, cn):
             if num_succs == 1:
                 if is_diagnosed[cn]:
-                    resolve_diagnosed(t, cn, is_diagnosed, diagnosis_dates)
+                    resolve_diagnosed(t, cn, is_diagnosed, diag_dates_dict)
                 else:
                     remove_undiagnosed(t, cn, is_diagnosed)
             elif num_succs > 1:
-                split_node(t, cn, is_diagnosed, diagnosis_dates, infection_date)
+                split_node(t, cn, is_diagnosed, diag_dates_dict, inf_date_dict)
             else:
                 # this must be a leaf node.
                 pass
@@ -241,7 +243,7 @@ nx.draw_planar(tmp2, with_labels = True)
 plt.savefig("tmp2-preprocessing.png")
 plt.clf()
 
-second_pass_reconstruction(tmp2, seed_uids[0], 200)
+second_pass_reconstruction(tmp2, seed_uids[0], diagnosis_dates, infection_date, 200)
 
 nx.draw_planar(tmp2, with_labels = True)
 plt.savefig("tmp2-postprocessing.png")
