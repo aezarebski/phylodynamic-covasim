@@ -273,16 +273,6 @@ def _parse_node_time(n: str) -> float:
     else:
         return float(maybe_match.group(1))
 
-def _parse_inf_label(n: str) -> str:
-    """
-    infection by {n} on {inf_d}
-    """
-    maybe_match = re.search(r'^infection by ([0-9]+) on [\.0-9]+$', n)
-    if maybe_match is None:
-        raise Exception('could not parse: ' + n)
-    else:
-        return maybe_match.group(1)
-
 def _parse_diag(n: str) -> str:
     """
     diagnosis of {n} on {d}
@@ -323,12 +313,12 @@ def _subtree(t: nx.DiGraph, n: str, pred_time: float) -> str:
         branch_length = str(succ_time - curr_time)
         if len(succs) > 1:
             assert succ_time > curr_time, 'current time is {c} but successor time is {s}'.format(c=curr_time, s=succ_time)
-            return _descendent_list(t, n, curr_time) + _parse_inf_label(n) + ':' + branch_length
+            return _descendent_list(t, n, curr_time) + ':' + branch_length
         else:
             is_inf = re.match(r'^infection by ([0-9]+) on [\.0-9]+$', n)
             if is_inf:
                 assert succ_time > curr_time, 'current time is {c} but successor time is {s}'.format(c=curr_time, s=succ_time)
-                return _descendent_list(t, n, curr_time) + _parse_inf_label(n) + ':' + branch_length
+                return _descendent_list(t, n, curr_time) + ':' + branch_length
             else:
                 return _descendent_list(t, n, curr_time) + _parse_diag(n) + ':' + branch_length
     else:
